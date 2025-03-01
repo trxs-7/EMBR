@@ -44,8 +44,10 @@ export default function Result() {
     fetchPrediction();
   }, [url]);
 
-  const displayPrediction =
-    result && result.prediction === "Class 0" ? "Misinformation" : "True";
+  let displayPrediction = "True";
+  if (result && result.corrected_text) {
+    displayPrediction = "Misinformation";
+  }
 
   return (
     <>
@@ -57,7 +59,6 @@ export default function Result() {
           <div>
             <h3>Prediction</h3>
             <p>{displayPrediction}</p>
-            {/* Optionally, if you need to display corrected_text from backend */}
             {result.corrected_text && (
               <>
                 <h3>Corrected Text</h3>

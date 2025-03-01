@@ -35,7 +35,7 @@ export default function UrlForm() {
 
   return (
     <form onSubmit={handleSubmit}>
-      <h3>News Bias Remover</h3>
+      <h3>Article Truth Detector</h3>
       <label htmlFor="urlInput">Submit a URL:</label>
       <input
         type="url"
