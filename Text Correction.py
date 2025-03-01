@@ -1,7 +1,7 @@
 import groq
 
 # Set your API key
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "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"
 
 # Initialize Groq client
 client = groq.Client(api_key=GROQ_API_KEY)
@@ -18,7 +18,7 @@ def rewrite_article_with_analysis(article: str):
     prompt = ("You are an expert in fact-checking and journalism. The following article is confirmed to contain misinformation. "
               "Your task is to rewrite each section to be fully factual and objective. "
               "After each rewritten section, explain what was misleading in the original content and how it was corrected. Explain in third-person perspective. "
-              "If fed the same section multiple times, ignore the section and do not refine it. s"
+              "If fed the same section multiple times, ignore the section and do not refine it. "
               "Use clear section breaks for readability.\n\n"
               "### Original Article:\n"
               f"{article}\n\n"
