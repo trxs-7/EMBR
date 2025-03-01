@@ -3,6 +3,8 @@ import mongoose from "mongoose";
 import dotenv from "dotenv";
 import cors from "cors";
 import urlRouter from "./routes/urlRoutes";
+import dataRouter from "./routes/dataRoutes";
+import scrapeRouter from "./routes/scrapeRoutes";
 
 dotenv.config();
 
@@ -13,6 +15,8 @@ if (!mongoUri) {
   throw new Error("MONGO_URI is not defined in environment variables");
 }
 
+// Register JSON parser and CORS before your routes
+app.use(express.json());
 app.use(
   cors({
     origin: "http://localhost:5173",
@@ -21,19 +25,19 @@ app.use(
     credentials: true,
   })
 ); // Enable CORS
-app.use(express.json());
+
+app.use("/api/scrape", scrapeRouter);
+app.use("/api/urls", urlRouter);
+app.use("/api/data", dataRouter);
 
 app.get("/", (req, res) => {
   res.send("Welcome to the backend server!");
 });
 
-app.use("/api/urls", urlRouter);
-
 mongoose
   .connect(mongoUri)
-  .then(() => console.log("Connected to MongoDB"))
+  .then(() => {
+    console.log("Connected to MongoDB");
+    app.listen(port, () => console.log(`Server running on port ${port}`));
+  })
   .catch((error) => console.log(error.message));
-
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});

@@ -1,18 +1,19 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function UrlForm() {
   const [url, setUrl] = useState("");
   const [error, setError] = useState("");
+  const navigate = useNavigate();
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    // Send URL to save in database
     try {
       const response = await fetch("/api/urls", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
       });
 
@@ -28,6 +29,8 @@ export default function UrlForm() {
       console.error("Error submitting URL:", error);
       setError("Error submitting URL");
     }
+
+    navigate("/result", { state: { url } });
   };
 
   return (

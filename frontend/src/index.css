@@ -80,7 +80,8 @@ button:focus-visible {
   outline: 4px auto -webkit-focus-ring-color;
 }
 
-.form {
+.form,
+.prediction {
   width: 100%;
   max-width: 600px;
   display: flex;
