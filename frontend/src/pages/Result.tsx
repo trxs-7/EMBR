@@ -1,39 +1,74 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import { useLocation } from "react-router-dom";
+import Navbar from "../components/navbar";
 
 export default function Result() {
-  const [urls, setUrls] = useState<any[]>([]);
+  const location = useLocation();
+  const { url } = location.state || {};
+  const [result, setResult] = useState<any>(null);
   const [error, setError] = useState("");
 
+  const effectRan = useRef(false);
+
   useEffect(() => {
-    const fetchUrls = async () => {
+    if (effectRan.current) return;
+    effectRan.current = true;
+
+    if (!url) {
+      setError("No URL provided!");
+      return;
+    }
+
+    const fetchPrediction = async () => {
       try {
-        const response = await fetch("/api/urls");
+        const response = await fetch("/api/scrape", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ url }),
+        });
         if (!response.ok) {
           throw new Error("Failed to fetch data");
         }
-        const data = await response.json();
-        setUrls(data);
+        const jsonResponse = await response.json();
+        console.log("Fetched prediction:", jsonResponse);
+        setResult(jsonResponse);
+        setError("");
       } catch (err: any) {
+        console.error("Error fetching prediction:", err);
         setError(err.message);
       }
     };
 
-    fetchUrls();
-  }, []);
+    fetchPrediction();
+  }, [url]);
+
+  const displayPrediction =
+    result && result.prediction === "Class 0" ? "Misinformation" : "True";
 
   return (
-    <div>
-      <h2>All Data from Backend</h2>
-      {error && <p style={{ color: "red" }}>{error}</p>}
-      {urls.length ? (
-        <ul>
-          {urls.map((item) => (
-            <li key={item._id}>{JSON.stringify(item)}</li>
-          ))}
-        </ul>
-      ) : (
-        <p>No data found.</p>
-      )}
-    </div>
+    <>
+      <Navbar />
+      <div className="prediction">
+        <h2>Results for: {url}</h2>
+        {error && <p style={{ color: "red" }}>{error}</p>}
+        {result ? (
+          <div>
+            <h3>Prediction</h3>
+            <p>{displayPrediction}</p>
+            {/* Optionally, if you need to display corrected_text from backend */}
+            {result.corrected_text && (
+              <>
+                <h3>Corrected Text</h3>
+                {result.corrected_text}
+              </>
+            )}
+          </div>
+        ) : (
+          <p>Loading prediction...</p>
+        )}
+      </div>
+    </>
   );
 }

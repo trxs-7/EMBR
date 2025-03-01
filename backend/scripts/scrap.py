@@ -5,8 +5,12 @@ from groq import Groq
 import instructor
 from pydantic import BaseModel
 import json
+import sys
+
+url = sys.argv[1]
+
 client = Groq(
-    api_key= os.getenv("GROQ_API_KEY"),
+    api_key=os.getenv("GROQ_API_KEY"),
 )
 
 def scrape_website(url):
@@ -35,22 +39,11 @@ def scrape_website(url):
         "images": images,
         "text": text  # Limit text output for readability
     }
-'''
-# Example usage
-url = "https://theonion.com/trump-signs-executive-order-making-official-language-of-u-s-remedial-english/"
-data = scrape_website(url)
-if data:
-    print("Title:", data["title"])
-    print("Images:", data["images"])
-    print("Text:", data["text"])
-'''
-def summarise(data,model):
-    # Initialize with API key
+
+def summarise(data, model):
+    # Initialize with API key and enable instructor patches for Groq client
     client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-
-    # Enable instructor patches for Groq client
     client = instructor.from_groq(client)
-
 
     class User(BaseModel):
         Title: str
@@ -61,19 +54,31 @@ def summarise(data,model):
     user = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "user", "content": "You are a expert analyser of websites. Get the title, main text and the only relavant images of the maintext" + data['title'] + data['text'] + "".join(data['images']) + "Be as succient as possible and Output in strict Json"},
+            {
+                "role": "user",
+                "content": (
+                    "You are an expert analyser of websites. Get the title, main text and the only relevant images of the main text: "
+                    + data['title']
+                    + data['text']
+                    + "".join(data['images'])
+                    + " Be as succinct as possible and output in strict JSON"
+                ),
+            },
         ],
         response_model=User,
     )
 
-    #print(user)
-    #turn user into json
-    json_user = json.dumps(user.dict())
+    # Turn user output into JSON using model_dump() instead of dict()
+    json_user = json.dumps(user.model_dump())
     return json_user
 
-def execute(url,model):
+def execute(url, model):
     data = scrape_website(url)
     if data:
-        return summarise(data,model)
+        return summarise(data, model)
     else:
         return None
+
+out = execute(url, "llama-3.3-70b-versatile")
+print(out)
+sys.stdout.flush()

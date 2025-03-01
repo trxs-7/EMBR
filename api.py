@@ -13,6 +13,7 @@ import logging
 from fastapi import HTTPException, UploadFile, File, Form
 from typing import Optional
 import io
+import requests
 # Initialize logging
 my_logger = logging.getLogger()
 my_logger.setLevel(logging.DEBUG)
@@ -157,11 +158,15 @@ async def predict(
     elif image_url:
         # Check if image_url is a URL (starts with http/https)
         if image_url.startswith("http://") or image_url.startswith("https://"):
-            response = requests.get(image_url)
+            headers = {"User-Agent": "Mozilla/5.0"} 
+            response = requests.get(image_url, headers=headers)
             if response.status_code != 200:
                 raise HTTPException(status_code=400, detail="Unable to fetch image from URL")
             image_data = response.content
-            img = Image.open(io.BytesIO(image_data)).convert("RGB")
+            try:
+                img = Image.open(io.BytesIO(image_data)).convert("RGB")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Unable to open image: {e}")
         else:
             # Assume image_url is a local file path
             try:
