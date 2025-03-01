@@ -8,7 +8,11 @@
 
   color-scheme: light dark;
   color: #242424;
-  background-color: #f8f8f8;
+  background-image: url("assets/background.jpg");
+  background-color: rgba(36, 36, 36, 0.5);
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
