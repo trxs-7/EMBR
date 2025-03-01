@@ -15,20 +15,34 @@ my_logger = logging.getLogger()
 my_logger.setLevel(logging.DEBUG)
 logging.basicConfig(level=logging.DEBUG, filename='logs.log')
 # Define the BERTResNetClassifier
-class BERTResNetClassifier(nn.Module):
+class BERTSigLIPClassifier(nn.Module):
     def __init__(self, num_classes=2, dropout_rate=0.3):
-        super(BERTResNetClassifier, self).__init__()
+        super(BERTSigLIPClassifier, self).__init__()
         
-        # Image processing
-        self.image_model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
-        # Freeze early layers
-        for i, child in enumerate(self.image_model.children()):
-            if i < 6:
-                for param in child.parameters():
+        # Image processing with SigLIP
+        # Import SigLIP model from torchvision or transformers
+        from transformers import AutoProcessor, AutoModel
+        
+        # SigLIP model
+        self.image_processor = AutoProcessor.from_pretrained("google/siglip-base-patch16-224")
+        self.image_model = AutoModel.from_pretrained("google/siglip-base-patch16-224")
+        
+        # Freeze early layers of SigLIP
+        for i, (name, param) in enumerate(self.image_model.vision_model.named_parameters()):
+            # Freeze all except the final transformer blocks
+            if "encoder.layers" in name:
+                layer_num = int(name.split("encoder.layers.")[1].split(".")[0])
+                if layer_num < 10:  # Freeze first 10 layers (adjust as needed)
                     param.requires_grad = False
+            elif "layernorm" not in name and "pooler" not in name:
+                param.requires_grad = False
         
+        # SigLIP vision embedding dimension is typically 768
+        siglip_embedding_dim = self.image_model.vision_model.config.hidden_size
+                    
+        # Modify image branch with more regularization
         self.fc_image = nn.Sequential(
-            nn.Linear(1000, 512),
+            nn.Linear(siglip_embedding_dim, 512),
             nn.ReLU(),
             nn.BatchNorm1d(512),
             nn.Dropout(dropout_rate)
@@ -36,11 +50,13 @@ class BERTResNetClassifier(nn.Module):
         
         # Text processing
         self.text_model = BertModel.from_pretrained("bert-base-uncased")
+        # Freeze BERT layers except last few
         for param in self.text_model.parameters():
             param.requires_grad = False
         for param in self.text_model.encoder.layer[-2:].parameters():
             param.requires_grad = True
             
+        # Modify text branch with more regularization
         self.fc_text = nn.Sequential(
             nn.Linear(self.text_model.config.hidden_size, 512),
             nn.ReLU(),
@@ -54,27 +70,39 @@ class BERTResNetClassifier(nn.Module):
             nn.ReLU(),
             nn.BatchNorm1d(256),
             nn.Dropout(dropout_rate),
-            nn.Linear(256, num_classes)
+            nn.Linear(256, 1)
         )
         
     def forward(self, image, text_input_ids, text_attention_mask):
-        x_img = self.image_model(image)
+        # Image branch
+        # SigLIP expects raw pixel values and handles preprocessing internally
+        vision_outputs = self.image_model.vision_model(
+            pixel_values=image,
+            return_dict=True
+        )
+        x_img = vision_outputs.pooler_output  # Get the pooled image representation
         x_img = self.fc_image(x_img)
         
+        # Text branch with attention-weighted pooling
         text_outputs = self.text_model(
             input_ids=text_input_ids,
             attention_mask=text_attention_mask,
             return_dict=True
         )
         
+        # Attention-weighted pooling
         attention_weights = text_attention_mask.unsqueeze(-1).float()
         x_text = torch.sum(text_outputs.last_hidden_state * attention_weights, dim=1)
         x_text = x_text / torch.sum(attention_weights, dim=1)
         x_text = self.fc_text(x_text)
         
+        # Maximum fusion (keeping the same fusion strategy you had)
         x_fused = torch.max(x_text, x_img)
+        
+        # Classification
         x_out = self.classifier(x_fused)
         return x_out
+
 
 # Initialize FastAPI
 app = FastAPI()
@@ -85,15 +113,16 @@ tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
 
 # Define image transform
 transform = v2.Compose([
-    v2.Resize((256, 256)),
-    v2.ToImage(),
-    v2.ToDtype(torch.float32, scale=True),
-    v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
-])
+                v2.Resize((224, 224)),            # Directly resize to 224x224 for validation/test
+                v2.ToImage(),
+                v2.ToDtype(torch.float32, scale=True),
+                v2.Normalize([0.485, 0.456, 0.406],
+                             [0.229, 0.224, 0.225])
+            ])
 
 # Ensure BERTResNetClassifier is defined before loading
-model = BERTResNetClassifier()
-model.load_state_dict(torch.load("models/model_dict.pt", map_location=device))
+model = BERTSigLIPClassifier()
+model.load_state_dict(torch.load("best_model.pt", map_location=device))
 model.to(device)
 model.eval()
 
