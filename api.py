@@ -169,7 +169,7 @@ async def predict(
             except Exception as e:
                 raise HTTPException(status_code=400, detail=f"Unable to open image from path: {e}")
     else:
-        raise HTTPException(status_code=400, detail="No image provided. Provide an image file or image URL/path.")
+        img = Image.new("RGB", (224, 224), (0, 0, 0))
 
     # Preprocess the image: transform, add batch dimension, and move to device
     img = transform(img).unsqueeze(0).to(device)
