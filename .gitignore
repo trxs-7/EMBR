@@ -130,3 +130,5 @@ dist
 .pnp.*
 model
 model.pt
+*.pt
+best_model.zip

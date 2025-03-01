@@ -1,0 +1,131 @@
+from fastapi import FastAPI, File, UploadFile, Form
+from pydantic import BaseModel
+import torch
+import torchvision.transforms.v2 as v2
+from PIL import Image
+from transformers import BertTokenizer
+import io
+import torch.nn as nn
+from torchvision.models import resnet50, ResNet50_Weights
+from transformers import BertModel
+import uvicorn
+import logging
+# Initialize logging
+my_logger = logging.getLogger()
+my_logger.setLevel(logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG, filename='logs.log')
+# Define the BERTResNetClassifier
+class BERTResNetClassifier(nn.Module):
+    def __init__(self, num_classes=2, dropout_rate=0.3):
+        super(BERTResNetClassifier, self).__init__()
+        
+        # Image processing
+        self.image_model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V1)
+        # Freeze early layers
+        for i, child in enumerate(self.image_model.children()):
+            if i < 6:
+                for param in child.parameters():
+                    param.requires_grad = False
+        
+        self.fc_image = nn.Sequential(
+            nn.Linear(1000, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout_rate)
+        )
+        
+        # Text processing
+        self.text_model = BertModel.from_pretrained("bert-base-uncased")
+        for param in self.text_model.parameters():
+            param.requires_grad = False
+        for param in self.text_model.encoder.layer[-2:].parameters():
+            param.requires_grad = True
+            
+        self.fc_text = nn.Sequential(
+            nn.Linear(self.text_model.config.hidden_size, 512),
+            nn.ReLU(),
+            nn.BatchNorm1d(512),
+            nn.Dropout(dropout_rate)
+        )
+        
+        # Fusion and classification layers
+        self.classifier = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.BatchNorm1d(256),
+            nn.Dropout(dropout_rate),
+            nn.Linear(256, num_classes)
+        )
+        
+    def forward(self, image, text_input_ids, text_attention_mask):
+        x_img = self.image_model(image)
+        x_img = self.fc_image(x_img)
+        
+        text_outputs = self.text_model(
+            input_ids=text_input_ids,
+            attention_mask=text_attention_mask,
+            return_dict=True
+        )
+        
+        attention_weights = text_attention_mask.unsqueeze(-1).float()
+        x_text = torch.sum(text_outputs.last_hidden_state * attention_weights, dim=1)
+        x_text = x_text / torch.sum(attention_weights, dim=1)
+        x_text = self.fc_text(x_text)
+        
+        x_fused = torch.max(x_text, x_img)
+        x_out = self.classifier(x_fused)
+        return x_out
+
+# Initialize FastAPI
+app = FastAPI()
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Load tokenizer
+tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+
+# Define image transform
+transform = v2.Compose([
+    v2.Resize((256, 256)),
+    v2.ToImage(),
+    v2.ToDtype(torch.float32, scale=True),
+    v2.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+# Ensure BERTResNetClassifier is defined before loading
+model = BERTResNetClassifier()
+model.load_state_dict(torch.load("models/model_dict.pt", map_location=device))
+model.to(device)
+model.eval()
+
+def get_bert_embedding(text: str):
+    """Tokenize text for BERT."""
+    inputs = tokenizer.encode_plus(
+        text, add_special_tokens=True,
+        return_tensors="pt",
+        max_length=80,
+        truncation=True,
+        padding="max_length"
+    )
+    return inputs["input_ids"].to(device), inputs["attention_mask"].to(device)
+
+@app.post("/predict/")
+async def predict(image: UploadFile = File(...), text: str = Form(...)):
+    """Perform inference on an image and text pair."""
+    # Read and preprocess image
+    image_data = await image.read()
+    image = Image.open(io.BytesIO(image_data)).convert("RGB")
+    image = transform(image).unsqueeze(0).to(device)  # Add batch dimension
+    
+    # Process text
+    input_ids, attention_mask = get_bert_embedding(text)
+    
+    # Perform inference
+    with torch.no_grad():
+        output = model(image, input_ids, attention_mask)  # Forward pass
+        output = torch.softmax(output, dim=1)  # Convert logits to probabilities
+        prediction = torch.argmax(output, dim=1).item()  # Get class label
+    
+    return {"prediction": "Class 1" if prediction == 1 else "Class 0"}
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
